@@ -329,10 +329,12 @@ $("checkAns").onclick = async () => {
   out.hidden = false; out.innerHTML = '<p class="note">체크하는 중입니다…</p>';
   let matches = [];
   try{
-    const body = new URLSearchParams({text, language:"en-US", disabledCategories:"CASING,PUNCTUATION,TYPOGRAPHY", motherTongue:"ko"});
-    const r = await fetch("https://api.languagetool.org/v2/check", {method:"POST", body});
+    const body = new URLSearchParams({text, language:"en-US", disabledCategories:"CASING,PUNCTUATION,TYPOGRAPHY"});
+    let r = await fetch("https://api.languagetool.org/v2/check", {method:"POST", body});
+    if(!r.ok) r = await fetch("https://api.languagetool.org/v2/check?" + new URLSearchParams({text, language:"en-US"}));
+    if(!r.ok) throw new Error("http " + r.status);
     matches = (await r.json()).matches || [];
-  }catch{ out.innerHTML = '<p class="note">문법 검사 서버에 연결하지 못했습니다. 잠시 뒤 다시 눌러 주세요.</p>'; return; }
+  }catch(e){ out.innerHTML = '<p class="note">문법 검사 서버에 연결하지 못했습니다 (' + String(e.message || e).slice(0,60) + '). 잠시 뒤 다시 눌러 주세요. 계속 안 되면 \'복사해서 코치에게 가져가기\'로 English Desk 코치에게 교정받으세요.</p>'; return; }
   // corrected sentence: apply first suggestion of each match from the end
   let fixed = text;
   [...matches].sort((a,b) => b.offset - a.offset).forEach(m => { if(m.replacements && m.replacements[0]) fixed = fixed.slice(0, m.offset) + m.replacements[0].value + fixed.slice(m.offset + m.length); });
