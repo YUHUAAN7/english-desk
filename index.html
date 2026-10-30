@@ -108,6 +108,7 @@ body.nopy p:has(ruby){line-height:1.7}
     <p class="target" id="target"></p>
     <p class="ko" id="targetKo"></p>
     <div class="row"><button class="btn" id="listen">▶ 원어민 듣기</button><button class="btn" id="listenSlow">▶ 천천히</button><button class="btn" id="pyBtn" hidden>병음 끄기</button></div>
+    <p class="note" id="voiceNote" hidden></p>
     <div class="micwrap">
       <button class="mic" id="mic" aria-label="눌러서 말하기">🎙</button>
       <span class="note" id="micHint">원어민을 들은 뒤, 마이크를 누르고 그대로 따라 말하세요</span>
@@ -161,7 +162,7 @@ body.nopy p:has(ruby){line-height:1.7}
     <span class="pw" id="popW"></span><span class="ipa" id="popIpa"></span><span id="popKo"></span>
     <div class="row"><button class="btn" id="popSay">▶ 발음 듣기</button><button class="btn" id="popSlow">▶ 천천히</button></div>
   </div>
-  <p class="note"><span>버전</span> 2026-10-30l<span id="deskLink"> · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></span> · <a href="#" id="uiSwitch">中文界面</a></p>
+  <p class="note"><span>버전</span> 2026-10-30m<span id="deskLink"> · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></span> · <a href="#" id="uiSwitch">中文界面</a></p>
 </div>
 
 <script>
@@ -423,7 +424,7 @@ let ttsVoice = {};
 function pickVoice(){ try{ const all = speechSynthesis.getVoices();
   const en = all.filter(v => /^en[-_]US$/i.test(v.lang)); ttsVoice.en = en.find(x => /Google US English|Natural|Online|Samantha|Aria|Jenny/i.test(x.name)) || en[0] || null;
   const zh = all.filter(v => /^(zh[-_]CN|cmn[-_]Hans|zh[-_]Hans)/i.test(v.lang)); ttsVoice.zh = zh.find(x => /Google 普通话|Natural|Online|Xiaoxiao|Tingting|Yaoyao|Huihui/i.test(x.name)) || zh[0] || null; }catch{} }
-if(window.speechSynthesis){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+if(window.speechSynthesis){ pickVoice(); speechSynthesis.onvoiceschanged = () => { pickVoice(); if(window.voiceInfo) voiceInfo(); }; }
 function speak(text, rate=0.9){
   if(!window.speechSynthesis || !text) return;
   try{ player.pause(); speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = L.rec; u.rate = rate; if(ttsVoice[L.key]) u.voice = ttsVoice[L.key]; speechSynthesis.speak(u); }catch{}
@@ -488,6 +489,10 @@ function showItem(){
 }
 /* Our Mandarin recordings sound synthetic, so in 中文 mode a natural device voice (Google 普通话, Microsoft Natural) reads instead when there is one. */
 const niceZh = () => ZH() && ttsVoice.zh && /Google|Natural|Online|Neural/i.test(ttsVoice.zh.name);
+function voiceInfo(){
+  const n = $("voiceNote"); n.hidden = !ZH(); if(!ZH()) return;
+  n.textContent = niceZh() ? "읽는 목소리: " + ttsVoice.zh.name : "이 기기에는 자연스러운 중국어 목소리가 없어 녹음 파일로 읽습니다. 컴퓨터와 안드로이드는 Chrome 브라우저로 열면 Google 중국어 목소리로 훨씬 자연스럽게 들립니다.";
+}
 function readOut(o, slow){ if(!o) return; if(niceZh() || !o.audio) speak(tx(o), slow ? 0.7 : (ZH() ? 1 : 0.95)); else play(o.audio, slow ? 0.8 : 1); }
 $("listen").onclick = () => readOut(items[idx], false);
 $("listenSlow").onclick = () => readOut(items[idx], true);
@@ -569,7 +574,15 @@ $("checkAns").onclick = async () => {
   if(raw && coachReady()){ out.hidden = true; claudeCoach(tx(data.questions[qIdx % data.questions.length]), raw); return; }
   if(!raw){ out.hidden = false; out.textContent = t("먼저 마이크를 누르고 답을 말해 주세요."); return; }
   if(ZH()){   // no free grammar checker for Chinese: offer her own sentence for pronunciation scoring
-    out.hidden = false; out.innerHTML = '<p class="note" style="color:var(--bad,#b3261e)">중국어 문법 교정은 Claude 코치가 연결되어야 합니다. 체험단은 안내받은 링크로 이 페이지를 다시 열어 주세요. 지금은 내가 말한 문장으로 발음 채점만 할 수 있습니다.</p>';
+    out.hidden = false; out.innerHTML = '<p class="note">이 기기에는 Claude 코치가 연결되어 있지 않습니다. 아래 버튼을 누르면 Claude가 새 창에서 문법을 고치고 방송용 중국어로 바꿔 줍니다. 그대로 보내기만 하면 됩니다.</p>';
+    /* No coach key here: hand the answer to the user's own Claude chat, prefilled */
+    const q = tx(data.questions[qIdx % data.questions.length]);
+    const ask = "你是财经电视台的普通话教练。请帮我修改下面这段口语回答（语音识别结果，可能有同音字错误）。\n问题：" + q + "\n我的回答：" + raw +
+      "\n\n请用韩语说明：1) 每个错误：原文 → 改正，并用韩语简短说明原因 2) 只改错误后的句子 3) 财经电视直播版本（80-140字，先说结论）和韩语翻译 4) 2-3条韩语点评。";
+    const go = document.createElement("a"); go.className = "btn primary"; go.textContent = "💬 Claude에게 문법 교정받기 (새 창)";
+    go.href = "https://claude.ai/new?q=" + encodeURIComponent(ask); go.target = "_blank"; go.rel = "noopener"; go.style.textDecoration = "none"; go.style.display = "inline-block";
+    out.append(go);
+    const lb = document.createElement("div"); lb.className = "label"; lb.textContent = "내가 말한 문장 · 발음 채점"; out.append(lb);
     const fx = document.createElement("p"); fx.className = "fix"; clickable(fx, raw); out.append(fx);
     const row = document.createElement("div"); row.className = "row";
     const b1 = document.createElement("button"); b1.className = "btn"; b1.textContent = t("▶ 원어민 발음"); b1.onclick = () => speak(raw, 0.85);
@@ -765,7 +778,7 @@ function setLang(k){
   L = LANGS[k]; try{ localStorage.setItem("lang", k); }catch{}
   $("lEn").setAttribute("aria-pressed", k === "en"); $("lZh").setAttribute("aria-pressed", k === "zh");
   $("tagline").textContent = UIZ ? "Street Call · 今日市场，今日用英语说" : "Street Call · 오늘 시장, 오늘 " + L.name + "로 말한다";
-  $("pyBtn").hidden = !ZH(); $("copyAns").hidden = ZH() || UIZ; $("pop").hidden = true;
+  voiceInfo(); $("pyBtn").hidden = !ZH(); $("copyAns").hidden = ZH() || UIZ; $("pop").hidden = true;
   $("wordsNote").textContent = UIZ ? t("단어를 누르면 뜻과 발음기호, 발음을 들을 수 있습니다. 빨간 단어에 집중해서 한 번 더 말해 보세요.") : ZH() ? "초록은 정확, 주황은 소리는 맞고 성조가 다름, 빨강은 안 들린 글자입니다. 글자를 누르면 뜻과 병음, 발음을 들을 수 있습니다." : "단어를 누르면 뜻과 발음기호, 발음을 들을 수 있습니다. 빨간 단어에 집중해서 한 번 더 말해 보세요.";
   $("mic2Hint").textContent = t("마이크를 누르고 " + L.name + "로 답하세요. 다 말했으면 다시 누르세요.");
   $("copyNote").textContent = t("내 생각을 " + L.name + "로 말한 뒤 '문법·발음 체크하기'를 누르세요. 틀린 곳을 고친 문장을 원어민 발음으로 들려주고, 그 문장을 다시 따라 말하면 발음을 채점합니다.");
