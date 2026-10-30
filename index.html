@@ -75,6 +75,9 @@ button:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
 .lang button{font:inherit;font-size:.85rem;font-weight:700;padding:6px 12px;border:0;background:var(--surface);color:var(--muted);cursor:pointer}
 .lang button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
 :lang(zh){font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC",var(--f-body)}
+:lang(ja){font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo","Noto Sans CJK JP","Source Han Sans JP",var(--f-body)}
+.kana{display:block;font-size:.62em;font-weight:500;color:var(--accent);line-height:1.6;margin-top:4px}
+.nopy .kana{display:none}
 ruby{ruby-position:over;margin:0 .06em}
 rt{font-family:var(--f-body);font-size:.5em;font-weight:500;color:var(--accent);letter-spacing:0;line-height:1;padding:0 .15em}
 p:has(ruby){line-height:2.5}
@@ -88,7 +91,7 @@ body.nopy p:has(ruby){line-height:1.7}
 <div class="wrap">
   <header>
     <div class="top"><div class="label" id="tagline">Street Call · 오늘 시장, 오늘 영어로 말한다</div>
-      <div class="lang" id="langBox" role="group" aria-label="연습 언어"><button id="lEn" aria-pressed="true">English</button><button id="lZh" aria-pressed="false" lang="zh-CN">中文</button></div></div>
+      <div class="lang" id="langBox" role="group" aria-label="연습 언어"><button id="lEn" aria-pressed="true">English</button><button id="lZh" aria-pressed="false" lang="zh-CN">中文</button><button id="lJa" aria-pressed="false" lang="ja">日本語</button></div></div>
     <h1>말하기 연습실</h1>
     <p class="note" id="topic">오늘의 이슈를 불러오는 중입니다.</p>
   </header>
@@ -162,22 +165,24 @@ body.nopy p:has(ruby){line-height:1.7}
     <span class="pw" id="popW"></span><span class="ipa" id="popIpa"></span><span id="popKo"></span>
     <div class="row"><button class="btn" id="popSay">▶ 발음 듣기</button><button class="btn" id="popSlow">▶ 천천히</button></div>
   </div>
-  <p class="note"><span>버전</span> 2026-10-30m<span id="deskLink"> · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></span> · <a href="#" id="uiSwitch">中文界面</a></p>
+  <p class="note"><span>버전</span> 2026-10-30n<span id="deskLink"> · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></span> · <a href="#" id="uiSwitch">中文界面</a></p>
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
 let data = null, items = [], idx = 0, qIdx = 0;
-/* Practice language. The page explains in Korean; the sentences are English or Chinese. */
+/* Practice language. The page explains in Korean; the sentences are English, Chinese or Japanese. */
 const LANGS = {
   en: {key:"en", rec:"en-US", name:"영어", data:"data/today.json", gloss:"data/glossary.json"},
-  zh: {key:"zh", rec:"zh-CN", name:"중국어", data:"data/zh/today.json", gloss:"data/zh/glossary.json"}
+  zh: {key:"zh", rec:"zh-CN", name:"중국어", data:"data/zh/today.json", gloss:"data/zh/glossary.json"},
+  ja: {key:"ja", rec:"ja-JP", name:"일본어", data:"data/ja/today.json", gloss:"data/ja/glossary.json"}
 };
-const savedLang = (() => { const m = location.hash.match(/[#&]lang=(en|zh)/); if(m) return m[1]; try{ return localStorage.getItem("lang") || "en"; }catch{ return "en"; } })();
+const savedLang = (() => { const m = location.hash.match(/[#&]lang=(en|zh|ja)/); if(m) return m[1]; try{ return localStorage.getItem("lang") || "en"; }catch{ return "en"; } })();
 let L = LANGS[savedLang] || LANGS.en;
 const ZH = () => L.key === "zh";
+const JA = () => L.key === "ja";
 const tx = o => o ? (o[L.key] || "") : "";   // the practice sentence of an item, question or model answer
-const SEP = () => ZH() ? "" : " ";
+const SEP = () => L.key === "en" ? " " : "";
 /* ---------- Chinese screen for Chinese-speaking customers learning English (#ui=zh) ---------- */
 const UIZ = (() => { const m = location.hash.match(/[#&]ui=(zh|ko)/); if(m){ try{ localStorage.setItem("ui", m[1]); }catch{} return m[1] === "zh"; } try{ return localStorage.getItem("ui") === "zh"; }catch{ return false; } })();
 const ZH_UI = {
@@ -400,6 +405,96 @@ function zhTipsFor(r){
 let pyLib = null;
 const ensurePinyin = () => window.pinyinPro ? Promise.resolve() : (pyLib = pyLib || new Promise((ok, no) => { const sc = document.createElement("script"); sc.src = "lib/pinyin-pro.js"; sc.onload = ok; sc.onerror = no; document.head.append(sc); }));
 
+/* ---------- Japanese: furigana come with the lesson (seg = [surface, reading, glossary key]); score by surface or reading ---------- */
+/* The recognizer writes kanji or kana as it likes, so a word counts when either its kanji or its reading was heard. */
+const KAN = /[\p{Script=Han}々]/u;
+const hira = s => (s || "").normalize("NFKC").replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+const jaNorm = s => hira(s).toLowerCase().replace(/ぱーせんと/g, "%").replace(/(?<!\d)\.|\.(?!\d)/g, "").replace(/[^\p{L}\p{N}ー.%]/gu, "");
+/* sounds Korean speakers often blur: long vowels, っ, voicing, small kana */
+const loose = s => s.normalize("NFD").replace(/[゙゚]/g, "").normalize("NFC").replace(/[ぁぃぅぇぉゃゅょゎ]/g, c => String.fromCharCode(c.charCodeAt(0) + 1))
+  .replace(/[っー]/g, "").replace(/([うくすつぬふむゆるぐずづぶぷおこそとのほもよろごぞどぼぽ])う/g, "$1").replace(/([えけせてねへめれ])い/g, "$1").replace(/(.)\1/g, "$1");
+function jaUnits(o, fromKana){
+  const out = [], one = (c, wi) => { const n = jaNorm(c); if(n) out.push({d:c, s:n, r:"", rt:"", key:"", wi}); };
+  if(fromKana){ Array.from(o.kana || "").forEach((c, i) => one(c, i)); return out; }
+  if(!o.seg){ Array.from(tx(o)).forEach((c, i) => one(c, i)); return out; }
+  o.seg.forEach(([s, r, key], wi) => {
+    const n = jaNorm(s); if(!n) return;
+    if(r || /^[a-z0-9.%]+$/.test(n)) out.push({d:s, s:n, r: r ? jaNorm(r) : "", rt:r, key, wi});
+    else Array.from(s).forEach(c => one(c, wi));
+  });
+  return out;
+}
+function jaAlign(units, spoken){
+  const sp = Array.from(jaNorm(spoken)), n = units.length, m = sp.length;
+  const W = u => Math.max(1, Array.from(u.r || u.s).length);
+  const D = Array.from({length:n+1}, () => Array(m+1).fill(Infinity)), B = Array.from({length:n+1}, () => Array(m+1).fill(null));
+  D[0][0] = 0;
+  for(let i = 0; i <= n; i++) for(let j = 0; j <= m; j++){
+    const v = D[i][j]; if(v === Infinity) continue;
+    const go = (ii, jj, c, how) => { if(v + c < D[ii][jj]){ D[ii][jj] = v + c; B[ii][jj] = [i, j, how]; } };
+    if(j < m) go(i, j + 1, 1, "x");
+    if(i === n) continue;
+    const u = units[i], w = W(u);
+    go(i + 1, j, w, "bad"); if(j < m) go(i + 1, j + 1, w, "bad");
+    [u.s, u.r].filter(Boolean).forEach(a => {
+      const k = Array.from(a).length;
+      if(sp.slice(j, j + k).join("") === a) go(i + 1, j + k, 0, "ok");
+      if(!/^\p{Script=Hiragana}+$/u.test(a) || !loose(a)) return;
+      for(let kk = Math.max(1, k - 2); kk <= k + 2 && j + kk <= m; kk++) if(loose(sp.slice(j, j + kk).join("")) === loose(a)) go(i + 1, j + kk, w * 0.5, "tone");
+    });
+  }
+  const cls = Array(n).fill("bad"), heard = Array(n).fill(""); let i = n, j = m;
+  while(i > 0 || j > 0){ const b = B[i][j]; if(!b) break; if(b[2] !== "x"){ cls[b[0]] = b[2]; heard[b[0]] = sp.slice(b[1], j).join(""); } [i, j] = b; }
+  const tot = units.reduce((a, u) => a + W(u), 0), got = units.reduce((a, u, k) => a + W(u) * (cls[k] === "ok" ? 1 : cls[k] === "tone" ? 0.5 : 0), 0);
+  return {t: units, cls, heard, sc: tot ? got / tot : 0};
+}
+const JA_TIPS = [
+  [r => /っ/.test(r), "촉음(っ): 한 박자 그대로 멈췄다가 다음 소리를 내세요. 'かって'는 '캇-테'처럼 3박자입니다."],
+  [r => /ー|[おこそとのほもよろごぞどぼぽょ]う|[えけせてねへめれげぜでべぺ]い|(.)\1/.test(r), "장음: 길게 끄는 소리는 한 박자를 꽉 채우세요. 'こうか(효과)'와 'こか'는 다른 말입니다."],
+  [r => /ん/.test(r), "ん: 그 자체로 한 박자입니다. 짧게 삼키지 말고 한 박자 세어 주세요."],
+  [r => /[がぎぐげござじずぜぞだぢづでどばびぶべぼ]/.test(r), "탁음(が·ざ·だ·ば): 처음부터 목을 울려 내세요. 한국어 ㄱ·ㄷ·ㅂ처럼 내면 か·た·ぱ로 들립니다."],
+  [r => /[ざじずぜぞ]/.test(r), "ざ·じ·ず·ぜ·ぞ: 한국어 'ㅈ'이 아니라 목을 울리는 z 소리입니다."],
+  [r => /つ/.test(r), "つ: '쓰'가 아니라 혀끝을 윗잇몸에 붙였다 떼는 ts 소리입니다."],
+  [r => /ふ/.test(r), "ふ: 입술을 살짝 모아 바람만 내세요 (윗니로 입술을 물지 않습니다)."],
+  [r => /[らりるれろ]/.test(r), "ら·り·る·れ·ろ: 혀끝으로 윗잇몸을 한 번 가볍게 튕기세요. 굴리지 마세요."]
+];
+/* what differs in a near miss: っ, voicing, or vowel length (the indexes point into JA_TIPS) */
+function jaWhy(want, got){
+  const n = (s, re) => (s.normalize("NFD").match(re) || []).length;
+  if(n(want, /っ/g) !== n(got, /っ/g)) return [0, "촉음(っ)"];
+  if(n(want, /[\u3099\u309a]/g) !== n(got, /[\u3099\u309a]/g)) return [3, "탁음(が·ざ·だ·ば)"];
+  return [1, "장음(길게 끄는 소리)"];
+}
+function jaTipsFor(r){
+  const out = [], tips = new Set();
+  r.t.forEach((u, i) => { if(r.cls[i] !== "tone") return; const want = u.r || u.s, [k, what] = jaWhy(want, r.heard[i]);
+    out.push("<b>" + u.d + (u.rt ? " (" + u.rt + ")" : "") + "</b>: '" + r.heard[i] + "'처럼 들렸어요. " + what + "을 확인하세요."); tips.add(JA_TIPS[k][1]); });
+  if(!out.length) r.t.forEach((u, i) => { if(r.cls[i] === "bad") JA_TIPS.forEach(([f, tip]) => { if(f(u.r || u.s)) tips.add(tip); }); });
+  return out.slice(0, 4).concat([...tips].slice(0, 3));
+}
+/* furigana only over the kanji: 高まる/たかまる → 高(たか)まる */
+function jaRuby(s, r){
+  const f = document.createDocumentFragment(), ruby = (b, t) => { const e = document.createElement("ruby"); e.append(b); const rt = document.createElement("rt"); rt.textContent = t; e.append(rt); f.append(e); };
+  const parts = s.match(/[\p{Script=Han}々]+|[^\p{Script=Han}々]+/gu) || [s];
+  const re = new RegExp("^" + parts.map(p => KAN.test(p) ? "(.+?)" : "(" + hira(p).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")").join("") + "$");
+  const m = hira(r).match(re);
+  if(!m){ ruby(s, r); return f; }
+  parts.forEach((p, i) => KAN.test(p) ? ruby(p, m[i + 1]) : f.append(p));
+  return f;
+}
+/* sentences without lesson data (coach answers): glossary words get furigana, the rest stays plain */
+function jaTokens(text){
+  const out = [], ch = Array.from(text || "");
+  const kind = c => KAN.test(c) ? "k" : /\p{Script=Katakana}|ー/u.test(c) ? "K" : /[A-Za-z0-9.%]/.test(c) ? "a" : "h";
+  for(let i = 0; i < ch.length;){
+    let n = Math.min(10, ch.length - i); while(n > 0 && !gloss[ch.slice(i, i + n).join("")]) n--;
+    if(n){ const w = ch.slice(i, i + n).join(""); out.push([w, gloss[w].r || "", w]); i += n; continue; }
+    let j = i + 1; const k = kind(ch[i]); if(k !== "h") while(j < ch.length && kind(ch[j]) === k && !gloss[ch[j]]) j++;
+    out.push([ch.slice(i, j).join(""), "", ""]); i = j;
+  }
+  return out;
+}
+
 /* Common trouble spots for Korean speakers, shown for the words she missed */
 const TIPS = [
   [/^th|th/, "th: 혀끝을 윗니에 살짝 대고 바람을 내보내세요 (ㄷ·ㅆ가 아닙니다)."],
@@ -423,7 +518,8 @@ const loadGloss = () => { gloss = {}; const want = L; fetch(L.gloss + "?v=" + Da
 let ttsVoice = {};
 function pickVoice(){ try{ const all = speechSynthesis.getVoices();
   const en = all.filter(v => /^en[-_]US$/i.test(v.lang)); ttsVoice.en = en.find(x => /Google US English|Natural|Online|Samantha|Aria|Jenny/i.test(x.name)) || en[0] || null;
-  const zh = all.filter(v => /^(zh[-_]CN|cmn[-_]Hans|zh[-_]Hans)/i.test(v.lang)); ttsVoice.zh = zh.find(x => /Google 普通话|Natural|Online|Xiaoxiao|Tingting|Yaoyao|Huihui/i.test(x.name)) || zh[0] || null; }catch{} }
+  const zh = all.filter(v => /^(zh[-_]CN|cmn[-_]Hans|zh[-_]Hans)/i.test(v.lang)); ttsVoice.zh = zh.find(x => /Google 普通话|Natural|Online|Xiaoxiao|Tingting|Yaoyao|Huihui/i.test(x.name)) || zh[0] || null;
+  const ja = all.filter(v => /^ja[-_]JP/i.test(v.lang)); ttsVoice.ja = ja.find(x => /Google 日本語|Natural|Online|Nanami|Kyoko|O-ren|Otoya|Hattori/i.test(x.name)) || ja[0] || null; }catch{} }
 if(window.speechSynthesis){ pickVoice(); speechSynthesis.onvoiceschanged = () => { pickVoice(); if(window.voiceInfo) voiceInfo(); }; }
 function speak(text, rate=0.9){
   if(!window.speechSynthesis || !text) return;
@@ -432,6 +528,7 @@ function speak(text, rate=0.9){
 const keyOf = w => w.toLowerCase().replace(/[’]/g,"'").replace(/^[^a-z0-9']+|[^a-z0-9']+$/g,"").replace(/^'+|'+$/g,"");
 function showWord(raw){
   if(ZH()) return showZhWord(raw);
+  if(JA()) return showJaWord(raw);
   const k = keyOf(raw); if(!k) return;
   const e = gloss[k] || gloss[k.replace(/'s$/,"")] || gloss[k.replace(/s$/,"")] || {};
   $("popW").textContent = k; $("popW").lang = "en"; $("popIpa").textContent = e.ipa || "";
@@ -446,6 +543,15 @@ function showZhWord(w){
   $("popIpa").textContent = HAN.test(w) ? pinyinPro.pinyin(w, {toneSandhi:false}) : "";
   $("popKo").textContent = gloss[w] || (w.length === 1 ? "" : "단어장에 아직 없는 표현입니다.");
   $("popSay").onclick = () => speak(w, 0.8); $("popSlow").onclick = () => speak(w, 0.55);
+  $("pop").hidden = false;
+}
+function showJaWord(w, r, key){
+  w = (w || "").trim(); if(!w) return;
+  const g = gloss[key] || gloss[w] || null;
+  $("popW").textContent = w; $("popW").lang = "ja";
+  $("popIpa").textContent = r || (g && g.r) || "";
+  $("popKo").textContent = g ? g.ko : "단어장에 아직 없는 표현입니다.";
+  $("popSay").onclick = () => speak(w, 0.85); $("popSlow").onclick = () => speak(w, 0.6);
   $("pop").hidden = false;
 }
 /* Chinese: one ruby (character + pinyin) per character, grouped into glossary words (longest match) */
@@ -463,8 +569,17 @@ function zhTokens(text){
   }
   return out;
 }
-function clickable(el, text){
-  el.lang = ZH() ? "zh-CN" : "en";
+function clickable(el, text, seg, kana){
+  el.lang = ZH() ? "zh-CN" : JA() ? "ja" : "en";
+  if(JA()){
+    el.innerHTML = "";
+    (seg || jaTokens(text)).forEach(([s, r, key]) => {
+      if(!(r || key || /[\p{Script=Han}\p{Script=Katakana}A-Za-z0-9]/u.test(s))){ el.append(s); return; }
+      const sp = document.createElement("span"); sp.className = "w"; sp.append(r ? jaRuby(s, r) : s); sp.onclick = () => showJaWord(s, r, key); el.append(sp);
+    });
+    if(kana && !seg){ const k = document.createElement("span"); k.className = "kana"; k.textContent = kana; el.append(k); }
+    return;
+  }
   if(ZH()){
     el.innerHTML = ""; text = text || "";
     const py = pinyinPro.pinyin(text, {type:"all", toneSandhi:false}); let at = 0;   // whole sentence at once so 还/长/行 get the right reading
@@ -483,32 +598,34 @@ function clickable(el, text){
 function showItem(){
   const it = items[idx]; if(!it) return;
   $("setName").textContent = setLabel(it.set); $("prog").textContent = (idx+1)+" / "+items.length;
-  clickable($("target"), tx(it)); $("targetKo").textContent = tr(it);
+  clickable($("target"), tx(it), it.seg, it.kana); $("targetKo").textContent = tr(it);
   $("result").hidden = true; $("tips").hidden = true; $("myVoice").hidden = true;
   $("micHint").textContent = t("원어민을 들은 뒤, 마이크를 누르고 그대로 따라 말하세요");
 }
-/* Our Mandarin recordings sound synthetic, so in 中文 mode a natural device voice (Google 普通话, Microsoft Natural) reads instead when there is one. */
-const niceZh = () => ZH() && ttsVoice.zh && /Google|Natural|Online|Neural/i.test(ttsVoice.zh.name);
+/* Our Mandarin and Japanese recordings sound synthetic, so a natural device voice (Google, Microsoft Natural, Apple Kyoko/O-ren) reads instead when there is one. */
+const NICE = {zh: /Google|Natural|Online|Neural/i, ja: /Google|Natural|Online|Neural|Kyoko|O-ren|Otoya|Hattori/i};
+const niceVoice = () => !!(NICE[L.key] && ttsVoice[L.key] && NICE[L.key].test(ttsVoice[L.key].name));
 function voiceInfo(){
-  const n = $("voiceNote"); n.hidden = !ZH(); if(!ZH()) return;
-  n.textContent = niceZh() ? "읽는 목소리: " + ttsVoice.zh.name : "이 기기에는 자연스러운 중국어 목소리가 없어 녹음 파일로 읽습니다. 컴퓨터와 안드로이드는 Chrome 브라우저로 열면 Google 중국어 목소리로 훨씬 자연스럽게 들립니다.";
+  const n = $("voiceNote"); n.hidden = !NICE[L.key]; if(n.hidden) return;
+  n.textContent = niceVoice() ? "읽는 목소리: " + ttsVoice[L.key].name : "이 기기에는 자연스러운 " + L.name + " 목소리가 없어 녹음 파일로 읽습니다. 컴퓨터와 안드로이드는 Chrome 브라우저로 열면 Google " + L.name + " 목소리로 훨씬 자연스럽게 들립니다.";
 }
-function readOut(o, slow){ if(!o) return; if(niceZh() || !o.audio) speak(tx(o), slow ? 0.7 : (ZH() ? 1 : 0.95)); else play(o.audio, slow ? 0.8 : 1); }
+function readOut(o, slow){ if(!o) return; if(niceVoice() || !o.audio) speak(tx(o), slow ? 0.7 : (L.key === "en" ? 0.95 : 1)); else play(o.audio, slow ? 0.8 : 1); }
 $("listen").onclick = () => readOut(items[idx], false);
 $("listenSlow").onclick = () => readOut(items[idx], true);
 let showPy = (() => { try{ return localStorage.getItem("pinyin") !== "off"; }catch{ return true; } })();
-function applyPy(){ document.body.classList.toggle("nopy", !showPy); $("pyBtn").textContent = showPy ? "병음 끄기" : "병음 켜기"; }
+function applyPy(){ document.body.classList.toggle("nopy", !showPy); $("pyBtn").textContent = (JA() ? "후리가나 " : "병음 ") + (showPy ? "끄기" : "켜기"); }
 $("pyBtn").onclick = () => { showPy = !showPy; try{ localStorage.setItem("pinyin", showPy ? "on" : "off"); }catch{} applyPy(); };
 applyPy();
 $("prev").onclick = () => { idx = (idx - 1 + items.length) % items.length; showItem(); };
 $("next").onclick = () => { idx = (idx + 1) % items.length; showItem(); };
 $("mic")._start = $("mic").onclick = () => listenOnce($("mic"), $("micHint"), {
-  until: t => ZH() ? zhUnits(t).length >= Math.ceil(zhUnits(tx(items[idx])).length * 0.85) : words(t).length >= Math.ceil(words(tx(items[idx])).length * 0.85),
+  until: t => ZH() ? zhUnits(t).length >= Math.ceil(zhUnits(tx(items[idx])).length * 0.85) : JA() ? jaNorm(t).length >= Math.ceil(jaNorm(tx(items[idx])).length * 0.85) : words(t).length >= Math.ceil(words(tx(items[idx])).length * 0.85),
   onInterim: x => { $("micHint").textContent = t("들린 말: ") + x; },
   onFinal: (text, alts, url) => {
     const it = items[idx];
     const cands = [text, ...alts].filter(Boolean);
     if(ZH()) return zhResult(it, cands, url);
+    if(JA()) return jaResult(it, cands, url);
     let best = null;
     cands.forEach(c => { const a = align(tx(it), c); const sc = a.ok.filter(Boolean).length / a.t.length; if(!best || sc > best.sc) best = {...a, sc, c}; });
     if(!best){ $("micHint").textContent = t("아무 말도 안 들렸어요. 다시 눌러 주세요"); return; }
@@ -548,11 +665,38 @@ function zhResult(it, cands, url){
   $("micHint").textContent = t("다시 하려면 마이크를 누르세요");
 }
 
+/* Japanese result: green = right, orange = nearly (long vowel, っ or voicing off), red = not heard. Same-colour pieces of a word stay together. */
+function jaResult(it, cands, url){
+  let best = null;
+  const sets = [jaUnits(it)]; if(it.kana) sets.push(jaUnits(it, true));
+  cands.forEach(c => sets.forEach(u => { if(!u.length) return; const a = jaAlign(u, c); if(!best || a.sc > best.sc) best = {...a, c}; }));
+  if(!best){ $("micHint").textContent = t("아무 말도 안 들렸어요. 다시 눌러 주세요"); return; }
+  const pct = Math.round(best.sc * 100);
+  $("result").hidden = false; $("score").textContent = pct;
+  $("verdict").textContent = pct >= 90 ? t("훌륭합니다. 방송 수준이에요.") : pct >= 70 ? "좋아요. 빨간·주황 부분만 다시 연습하세요." : t("천천히 듣고 한 번 더 해 볼까요?");
+  $("words").innerHTML = ""; $("words").lang = "ja";
+  let last = null;
+  best.t.forEach((u, i) => {
+    const k = best.cls[i];
+    if(last && last.k === k && last.wi === u.wi && !u.rt && !last.rt){ last.el.append(u.d); last.text += u.d; return; }
+    const s = document.createElement("span"); s.className = k; s.append(u.rt ? jaRuby(u.d, u.rt) : u.d);
+    last = {el: s, k, wi: u.wi, rt: u.rt, text: u.d};
+    const me = last; s.onclick = () => showJaWord(me.text, u.rt, u.key); $("words").append(s);
+  });
+  $("heard").textContent = t("들린 말: ") + best.c;
+  const tips = jaTipsFor(best);
+  $("tipBtn").hidden = !tips.length;
+  $("tipBtn").onclick = () => { $("tips").hidden = false; $("tips").innerHTML = tips.join("<br>"); };
+  if(best.cls.includes("tone")){ $("tips").hidden = false; $("tips").innerHTML = tips.join("<br>"); }
+  myUrl = url; $("myVoice").hidden = !url;
+  $("micHint").textContent = t("다시 하려면 마이크를 누르세요");
+}
+
 /* ---------- free answer ---------- */
 function showQ(){
   const q = data.questions[qIdx % data.questions.length];
   $("qWho").textContent = q.who; $("qProg").textContent = (qIdx % data.questions.length + 1) + " / " + data.questions.length;
-  clickable($("qEn"), tx(q)); $("qKo").textContent = tr(q);
+  clickable($("qEn"), tx(q), q.seg); $("qKo").textContent = tr(q);
   $("said").value = ""; $("modelWrap").hidden = true; $("myAns").hidden = true; $("checkOut").hidden = true; $("claudeOut").hidden = true; lastConfs = [];
 }
 $("qListen").onclick = () => readOut(data.questions[qIdx % data.questions.length], false);
@@ -573,12 +717,14 @@ $("checkAns").onclick = async () => {
   const raw = $("said").value.trim(); const out = $("checkOut");
   if(raw && coachReady()){ out.hidden = true; claudeCoach(tx(data.questions[qIdx % data.questions.length]), raw); return; }
   if(!raw){ out.hidden = false; out.textContent = t("먼저 마이크를 누르고 답을 말해 주세요."); return; }
-  if(ZH()){   // no free grammar checker for Chinese: offer her own sentence for pronunciation scoring
-    out.hidden = false; out.innerHTML = '<p class="note">이 기기에는 Claude 코치가 연결되어 있지 않습니다. 아래 버튼을 누르면 Claude가 새 창에서 문법을 고치고 방송용 중국어로 바꿔 줍니다. 그대로 보내기만 하면 됩니다.</p>';
+  if(ZH() || JA()){   // no free grammar checker for Chinese or Japanese: offer her own sentence for pronunciation scoring
+    out.hidden = false; out.innerHTML = '<p class="note">이 기기에는 Claude 코치가 연결되어 있지 않습니다. 아래 버튼을 누르면 Claude가 새 창에서 문법을 고치고 방송용 ' + L.name + '로 바꿔 줍니다. 그대로 보내기만 하면 됩니다.</p>';
     /* No coach key here: hand the answer to the user's own Claude chat, prefilled */
     const q = tx(data.questions[qIdx % data.questions.length]);
-    const ask = "你是财经电视台的普通话教练。请帮我修改下面这段口语回答（语音识别结果，可能有同音字错误）。\n问题：" + q + "\n我的回答：" + raw +
-      "\n\n请用韩语说明：1) 每个错误：原文 → 改正，并用韩语简短说明原因 2) 只改错误后的句子 3) 财经电视直播版本（80-140字，先说结论）和韩语翻译 4) 2-3条韩语点评。";
+    const ask = ZH() ? "你是财经电视台的普通话教练。请帮我修改下面这段口语回答（语音识别结果，可能有同音字错误）。\n问题：" + q + "\n我的回答：" + raw +
+      "\n\n请用韩语说明：1) 每个错误：原文 → 改正，并用韩语简短说明原因 2) 只改错误后的句子 3) 财经电视直播版本（80-140字，先说结论）和韩语翻译 4) 2-3条韩语点评。"
+      : "あなたは経済ニュース番組（NHK、テレビ東京WBS、日経CNBC）の日本語コーチです。次の口頭の回答を添削してください（音声認識の結果なので、同音異義語の誤りがあるかもしれません）。\n質問：" + q + "\n私の回答：" + raw +
+      "\n\n説明はすべて韓国語でお願いします：1) 各誤り：原文 → 修正、韓国語で短く理由 2) 誤りだけ直した文 3) 経済番組の生放送用バージョン（100〜160字、結論から、です・ます調）とそのふりがな（ひらがな）と韓国語訳 4) 韓国語のコーチングポイント2〜3つ。";
     const go = document.createElement("a"); go.className = "btn primary"; go.textContent = "💬 Claude에게 문법 교정받기 (새 창)";
     go.href = "https://claude.ai/new?q=" + encodeURIComponent(ask); go.target = "_blank"; go.rel = "noopener"; go.style.textDecoration = "none"; go.style.display = "inline-block";
     out.append(go);
@@ -587,7 +733,7 @@ $("checkAns").onclick = async () => {
     const row = document.createElement("div"); row.className = "row";
     const b1 = document.createElement("button"); b1.className = "btn"; b1.textContent = t("▶ 원어민 발음"); b1.onclick = () => speak(raw, 0.85);
     const b2 = document.createElement("button"); b2.className = "btn primary"; b2.textContent = "🎙 내 문장 따라 말하기";
-    b2.onclick = () => { items.splice(idx + 1, 0, {set: "내 답변", zh: raw, ko: "", audio: null}); idx++; mode("s"); showItem(); window.scrollTo({top:0, behavior:"smooth"}); };
+    b2.onclick = () => { items.splice(idx + 1, 0, {set: "내 답변", [L.key]: raw, ko: "", audio: null}); idx++; mode("s"); showItem(); window.scrollTo({top:0, behavior:"smooth"}); };
     row.append(b1, b2); out.append(row); return;
   }
   const text = sentenceCase(raw);
@@ -666,7 +812,7 @@ async function claudeCoach(question, answer){
   const key = getKey(), trial = !key && getTrial(); const out = $("claudeOut");
   if(!key && !trial){ out.hidden = true; return; }
   if(trial && trialUsed() >= TRIAL_LIMIT){ out.hidden = false; out.innerHTML = '<div class="label">' + t("Street Call 코치") + '</div><p class="note">' + t("오늘 코치 교정 ") + TRIAL_LIMIT + t("회를 모두 쓰셨습니다. 내일 다시 이용해 주세요. 따라 말하기와 발음 채점은 계속 쓸 수 있습니다.") + '</p>'; return; }
-  out.hidden = false; out.innerHTML = '<div class="label">' + t("Claude 코치") + '</div><p class="note">' + t("Claude가 ") + (ZH() ? "방송용 중국어로" : t("블룸버그식 영어로")) + t(" 고치는 중입니다 (5~20초)…") + '</p>';
+  out.hidden = false; out.innerHTML = '<div class="label">' + t("Claude 코치") + '</div><p class="note">' + t("Claude가 ") + (UIZ || L.key === "en" ? t("블룸버그식 영어로") : "방송용 " + L.name + "로") + t(" 고치는 중입니다 (5~20초)…") + '</p>';
   const fb = UIZ ? "Simplified Chinese" : "Korean";
   const prompt = UIZ ? `You are an elite broadcast-English coach preparing a Chinese finance professional (native Mandarin speaker) to speak live on Bloomberg TV and at Wall Street meetings.
 Question: ${question}
@@ -676,15 +822,20 @@ Check grammar, word choice, articles, tense and plurals carefully (typical Chine
 Question: ${question}
 Their spoken answer (zh-CN speech-to-text, may contain recognition errors, homophone mistakes or Korean): """${answer}"""
 Keep THEIR opinion and logic. Reuse their own words where usable. Write Mandarin in simplified characters only, no pinyin.
-Check grammar, word order, measure words, collocations and financial terminology carefully; list every real mistake (treat obvious speech-recognition homophones as pronunciation hints, not grammar errors). Reply only with the JSON object.` : `You are an elite broadcast-English coach preparing An Yuhua (Korean economist and TV market analyst on China, Korea and global macro; English started at Korean middle-school level) for live Bloomberg TV.
+Check grammar, word order, measure words, collocations and financial terminology carefully; list every real mistake (treat obvious speech-recognition homophones as pronunciation hints, not grammar errors). Reply only with the JSON object.` : JA() ? `You are an elite financial-broadcast Japanese coach preparing a Korean finance professional (economist and TV market analyst on China, Korea and global macro) to speak live on Japanese business TV (NHK, テレビ東京 WBS, 日経CNBC).
+Question: ${question}
+Their spoken answer (ja-JP speech-to-text, may contain recognition errors, wrong-kanji homophones or Korean): """${answer}"""
+Keep THEIR opinion and logic. Reuse their own words where usable. Use natural polite broadcast Japanese (です・ます).
+Check particles (は/が/を/に/で), verb and adjective forms, keigo, word choice, collocations and financial terminology carefully; list every real mistake (treat obvious speech-recognition homophones as pronunciation hints, not grammar errors). Write explanations in Korean. Reply only with the JSON object.` : `You are an elite broadcast-English coach preparing An Yuhua (Korean economist and TV market analyst on China, Korea and global macro; English started at Korean middle-school level) for live Bloomberg TV.
 Question: ${question}
 Her spoken answer (speech-to-text, may contain recognition errors or Korean): """${answer}"""
 Keep HER opinion and logic. Reuse her own words where usable.
 Check grammar, word choice and articles carefully; list every real mistake. Reply only with the JSON object.`;
-  const schema = {type:"object", additionalProperties:false, required:["corrections","corrected","broadcast","broadcast_ko","feedback_ko"], properties:{
+  const KANA = JA() ? {corrected_kana:{type:"string", description:"full reading of corrected in hiragana (numbers and Latin letters as read aloud), no spaces"}, broadcast_kana:{type:"string", description:"full reading of broadcast in hiragana (numbers and Latin letters as read aloud), no spaces"}} : {};
+  const schema = {type:"object", additionalProperties:false, required:["corrections","corrected","broadcast","broadcast_ko","feedback_ko"].concat(Object.keys(KANA)), properties:{...KANA,
     corrections:{type:"array", description:"every real mistake: wrong = the speaker's exact words, right = corrected words, why_ko = short reason in " + fb, items:{type:"object", additionalProperties:false, required:["wrong","right","why_ko"], properties:{wrong:{type:"string"}, right:{type:"string"}, why_ko:{type:"string"}}}},
     corrected:{type:"string", description:"her answer with only the mistakes fixed"},
-    broadcast:{type:"string", description: ZH() ? "a confident live financial-TV version in standard Mandarin, 80-140 characters, conclusion first" : "a confident Bloomberg live version, 45-70 words, conclusion first"},
+    broadcast:{type:"string", description: ZH() ? "a confident live financial-TV version in standard Mandarin, 80-140 characters, conclusion first" : JA() ? "a confident live financial-TV version in natural polite Japanese, 100-160 characters, conclusion first" : "a confident Bloomberg live version, 45-70 words, conclusion first"},
     broadcast_ko:{type:"string", description: fb + " translation of broadcast"},
     feedback_ko:{type:"array", items:{type:"string"}, description:"2-3 short coaching points in " + fb}}};
   try{
@@ -700,18 +851,18 @@ Check grammar, word choice and articles carefully; list every real mistake. Repl
     out.innerHTML = '<div class="label">' + t("Claude 코치 · 고칠 곳") + '</div>';
     (res.corrections||[]).forEach(c => { const d = document.createElement("div"); d.className = "err"; d.innerHTML = "<b></b> → <span></span><br><span class='note'></span>"; d.querySelector("b").textContent = c.wrong; d.querySelectorAll("span")[0].textContent = c.right; d.querySelector(".note").textContent = c.why_ko; out.append(d); });
     if(!(res.corrections||[]).length){ const p = document.createElement("p"); p.textContent = t("고칠 곳이 거의 없습니다. 훌륭합니다."); out.append(p); }
-    const add = (label, en, ko) => {
+    const add = (label, en, ko, kana) => {
       const l = document.createElement("div"); l.className = "label"; l.textContent = label; out.append(l);
-      const p = document.createElement("p"); p.className = "fix"; clickable(p, en); out.append(p);
+      const p = document.createElement("p"); p.className = "fix"; clickable(p, en, null, kana); out.append(p);
       if(ko){ const k = document.createElement("p"); k.className = "ko"; k.textContent = ko; out.append(k); }
       const row = document.createElement("div"); row.className = "row";
       const b1 = document.createElement("button"); b1.className = "btn"; b1.textContent = t("▶ 원어민 발음"); b1.onclick = () => speak(en, 0.9);
       const b2 = document.createElement("button"); b2.className = "btn primary"; b2.textContent = t("🎙 따라 말하기 채점");
-      b2.onclick = () => { items.splice(idx + 1, 0, {set: label, [L.key]: en, ko: ko || "", audio: null}); idx++; mode("s"); showItem(); window.scrollTo({top:0, behavior:"smooth"}); };
+      b2.onclick = () => { items.splice(idx + 1, 0, {set: label, [L.key]: en, ko: ko || "", audio: null, kana}); idx++; mode("s"); showItem(); window.scrollTo({top:0, behavior:"smooth"}); };
       row.append(b1, b2); out.append(row);
     };
-    add(t("내 답 (틀린 곳만 고침)"), res.corrected, "");
-    add(ZH() ? "방송용 중국어 버전" : t("블룸버그 방송용 버전"), res.broadcast, res.broadcast_ko);
+    add(t("내 답 (틀린 곳만 고침)"), res.corrected, "", res.corrected_kana);
+    add(UIZ || L.key === "en" ? t("블룸버그 방송용 버전") : "방송용 " + L.name + " 버전", res.broadcast, res.broadcast_ko, res.broadcast_kana);
     const fl = document.createElement("div"); fl.className = "label"; fl.textContent = t("코치 피드백"); out.append(fl);
     const ul = document.createElement("ul"); (res.feedback_ko||[]).forEach(f => { const li = document.createElement("li"); li.textContent = f; ul.append(li); }); out.append(ul);
     const pl = document.createElement("div"); pl.className = "label"; pl.textContent = t("발음 체크"); out.append(pl);
@@ -729,14 +880,14 @@ $("copyAns").onclick = () => {
 $("showModel").onclick = () => {
   const q = data.questions[qIdx % data.questions.length];
   if(!q.model) return;
-  $("modelWrap").hidden = false; clickable($("modelEn"), tx(q.model)); $("modelKo").textContent = tr(q.model);
+  $("modelWrap").hidden = false; clickable($("modelEn"), tx(q.model), q.model.seg); $("modelKo").textContent = tr(q.model);
 };
 $("modelListen").onclick = () => readOut(data.questions[qIdx % data.questions.length].model, false);
 /* jump to this answer's sentences in the shadowing list ("모범 답변 N" = question N) */
 $("modelShadow").onclick = () => {
   const n = qIdx % data.questions.length, q = data.questions[n];
   let i = items.findIndex(it => it.set === "모범 답변 " + (n + 1));
-  if(i < 0 && q.model){ items.splice(idx + 1, 0, {set: "모범 답변 " + (n + 1), [L.key]: tx(q.model), ko: q.model.ko, cn: q.model.cn, audio: q.model.audio}); i = idx + 1; }
+  if(i < 0 && q.model){ items.splice(idx + 1, 0, {set: "모범 답변 " + (n + 1), [L.key]: tx(q.model), ko: q.model.ko, cn: q.model.cn, audio: q.model.audio, seg: q.model.seg}); i = idx + 1; }
   if(i < 0) return;
   idx = i; mode("s"); showItem(); window.scrollTo({top:0, behavior:"smooth"});
 };
@@ -776,16 +927,16 @@ function addChinese(d, z){
 function setLang(k){
   if(UIZ) k = "en";
   L = LANGS[k]; try{ localStorage.setItem("lang", k); }catch{}
-  $("lEn").setAttribute("aria-pressed", k === "en"); $("lZh").setAttribute("aria-pressed", k === "zh");
+  $("lEn").setAttribute("aria-pressed", k === "en"); $("lZh").setAttribute("aria-pressed", k === "zh"); $("lJa").setAttribute("aria-pressed", k === "ja");
   $("tagline").textContent = UIZ ? "Street Call · 今日市场，今日用英语说" : "Street Call · 오늘 시장, 오늘 " + L.name + "로 말한다";
-  voiceInfo(); $("pyBtn").hidden = !ZH(); $("copyAns").hidden = ZH() || UIZ; $("pop").hidden = true;
-  $("wordsNote").textContent = UIZ ? t("단어를 누르면 뜻과 발음기호, 발음을 들을 수 있습니다. 빨간 단어에 집중해서 한 번 더 말해 보세요.") : ZH() ? "초록은 정확, 주황은 소리는 맞고 성조가 다름, 빨강은 안 들린 글자입니다. 글자를 누르면 뜻과 병음, 발음을 들을 수 있습니다." : "단어를 누르면 뜻과 발음기호, 발음을 들을 수 있습니다. 빨간 단어에 집중해서 한 번 더 말해 보세요.";
+  voiceInfo(); $("pyBtn").hidden = L.key === "en"; applyPy(); $("copyAns").hidden = L.key !== "en" || UIZ; $("pop").hidden = true;
+  $("wordsNote").textContent = UIZ ? t("단어를 누르면 뜻과 발음기호, 발음을 들을 수 있습니다. 빨간 단어에 집중해서 한 번 더 말해 보세요.") : ZH() ? "초록은 정확, 주황은 소리는 맞고 성조가 다름, 빨강은 안 들린 글자입니다. 글자를 누르면 뜻과 병음, 발음을 들을 수 있습니다." : JA() ? "초록은 정확, 주황은 거의 맞지만 장음·촉음(っ)·탁음이 다름, 빨강은 안 들린 부분입니다. 단어를 누르면 뜻과 읽는 법, 발음을 들을 수 있습니다." : "단어를 누르면 뜻과 발음기호, 발음을 들을 수 있습니다. 빨간 단어에 집중해서 한 번 더 말해 보세요.";
   $("mic2Hint").textContent = t("마이크를 누르고 " + L.name + "로 답하세요. 다 말했으면 다시 누르세요.");
   $("copyNote").textContent = t("내 생각을 " + L.name + "로 말한 뒤 '문법·발음 체크하기'를 누르세요. 틀린 곳을 고친 문장을 원어민 발음으로 들려주고, 그 문장을 다시 따라 말하면 발음을 채점합니다.");
   $("checkOut").hidden = true; $("claudeOut").hidden = true;
   loadGloss(); loadData();
 }
-$("lEn").onclick = () => setLang("en"); $("lZh").onclick = () => setLang("zh");
+$("lEn").onclick = () => setLang("en"); $("lZh").onclick = () => setLang("zh"); $("lJa").onclick = () => setLang("ja");
 $("langBox").hidden = UIZ; $("deskLink").hidden = UIZ;
 $("uiSwitch").textContent = UIZ ? "한국어 화면" : "中文界面";
 $("uiSwitch").onclick = e => { e.preventDefault(); try{ localStorage.setItem("ui", UIZ ? "ko" : "zh"); }catch{} location.replace(location.pathname + location.search); };
