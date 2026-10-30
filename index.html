@@ -139,7 +139,7 @@ button:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
     <span class="pw" id="popW"></span><span class="ipa" id="popIpa"></span><span id="popKo"></span>
     <div class="row"><button class="btn" id="popSay">▶ 발음 듣기</button><button class="btn" id="popSlow">▶ 천천히</button></div>
   </div>
-  <p class="note">버전 2026-10-30c · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></p>
+  <p class="note">버전 2026-10-30d · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></p>
 </div>
 
 <script>
@@ -330,7 +330,7 @@ const TYPE_KO = {grammar:"문법", misspelling:"철자·단어", typographical:"
 function sentenceCase(t){ t = t.trim().replace(/\s+/g," "); if(!t) return t; t = t[0].toUpperCase() + t.slice(1); t = t.replace(/\bi\b/g,"I"); return /[.!?]$/.test(t) ? t : t + "."; }
 $("checkAns").onclick = async () => {
   const raw = $("said").value.trim(); const out = $("checkOut");
-  if(raw) claudeCoach(data.questions[qIdx % data.questions.length].en, raw);
+  if(raw && getKey()){ out.hidden = true; claudeCoach(data.questions[qIdx % data.questions.length].en, raw); return; }
   if(!raw){ out.hidden = false; out.textContent = "먼저 마이크를 누르고 답을 말해 주세요."; return; }
   const text = sentenceCase(raw);
   out.hidden = false; out.innerHTML = '<p class="note">체크하는 중입니다…</p>';
@@ -388,19 +388,20 @@ async function claudeCoach(question, answer){
 Question: ${question}
 Her spoken answer (speech-to-text, may contain recognition errors or Korean): """${answer}"""
 Keep HER opinion and logic. Reuse her own words where usable.
-Reply with only JSON:
-{"corrections":[{"wrong":"her exact words","right":"corrected words","why_ko":"short reason in Korean"}],
- "corrected":"her answer with only the mistakes fixed",
- "broadcast":"a confident Bloomberg live version, 45-70 words, conclusion first",
- "broadcast_ko":"Korean translation of broadcast",
- "feedback_ko":["2-3 short coaching points in Korean"]}`;
+Check grammar, word choice and articles carefully; list every real mistake. Call the coach tool.`;
+  const tool = {name:"coach", description:"Return the coaching result.", input_schema:{type:"object", required:["corrections","corrected","broadcast","broadcast_ko","feedback_ko"], properties:{
+    corrections:{type:"array", items:{type:"object", required:["wrong","right","why_ko"], properties:{wrong:{type:"string", description:"her exact words"}, right:{type:"string", description:"corrected words"}, why_ko:{type:"string", description:"short reason in Korean"}}}},
+    corrected:{type:"string", description:"her answer with only the mistakes fixed"},
+    broadcast:{type:"string", description:"a confident Bloomberg live version, 45-70 words, conclusion first"},
+    broadcast_ko:{type:"string", description:"Korean translation of broadcast"},
+    feedback_ko:{type:"array", items:{type:"string"}, description:"2-3 short coaching points in Korean"}}}};
   try{
     const r = await fetch("https://api.anthropic.com/v1/messages", {method:"POST", headers:{"content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-      body: JSON.stringify({model:"claude-sonnet-5-5", max_tokens:1200, messages:[{role:"user", content:prompt}]})});
+      body: JSON.stringify({model:"claude-sonnet-5-5", max_tokens:1500, tools:[tool], tool_choice:{type:"tool", name:"coach"}, messages:[{role:"user", content:prompt}]})});
     const j = await r.json();
     if(!r.ok) throw new Error(j?.error?.message || ("HTTP " + r.status));
-    const txt = (j.content||[]).map(c => c.text||"").join("");
-    const res = JSON.parse(txt.slice(txt.indexOf("{"), txt.lastIndexOf("}")+1));
+    const res = ((j.content||[]).find(c => c.type === "tool_use") || {}).input;
+    if(!res) throw new Error("빈 응답");
     out.innerHTML = '<div class="label">Claude 코치 · 고칠 곳</div>';
     (res.corrections||[]).forEach(c => { const d = document.createElement("div"); d.className = "err"; d.innerHTML = "<b></b> → <span></span><br><span class='note'></span>"; d.querySelector("b").textContent = c.wrong; d.querySelectorAll("span")[0].textContent = c.right; d.querySelector(".note").textContent = c.why_ko; out.append(d); });
     if(!(res.corrections||[]).length){ const p = document.createElement("p"); p.textContent = "고칠 곳이 거의 없습니다. 훌륭합니다."; out.append(p); }
@@ -418,6 +419,11 @@ Reply with only JSON:
     add("블룸버그 방송용 버전", res.broadcast, res.broadcast_ko);
     const fl = document.createElement("div"); fl.className = "label"; fl.textContent = "코치 피드백"; out.append(fl);
     const ul = document.createElement("ul"); (res.feedback_ko||[]).forEach(f => { const li = document.createElement("li"); li.textContent = f; ul.append(li); }); out.append(ul);
+    const pl = document.createElement("div"); pl.className = "label"; pl.textContent = "발음 체크"; out.append(pl);
+    const unsure = lastConfs.filter(c => c.c > 0 && c.c < 0.8); const pp = document.createElement("p");
+    if(unsure.length){ pp.innerHTML = "인식기가 잘 못 알아들은 부분입니다. 천천히, 또박또박 다시 말해 보세요:<br>"; unsure.forEach(c => { const sp = document.createElement("span"); sp.className = "unclear"; sp.textContent = c.text + " (" + Math.round(c.c*100) + "%)"; pp.append(sp, " "); }); }
+    else pp.textContent = "위 문장의 '따라 말하기 채점'을 누르면 단어별 발음 점수를 받을 수 있습니다.";
+    out.append(pp);
   }catch(e){ out.innerHTML = '<div class="label">Claude 코치</div><p class="note">Claude 코치 응답을 받지 못했습니다: ' + String(e.message||e).slice(0,120).replace(/</g,"&lt;") + '</p>'; }
 }
 $("copyAns").onclick = () => {
