@@ -129,7 +129,7 @@ button:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
     <div class="result" id="modelWrap" hidden>
       <div class="label">모범 답변</div>
       <p id="modelEn"></p><p class="ko" id="modelKo"></p>
-      <div class="row"><button class="btn" id="modelListen">▶ 모범 답변 듣기</button></div>
+      <div class="row"><button class="btn" id="modelListen">▶ 모범 답변 듣기</button><button class="btn primary" id="modelShadow">🎙 모범 답변 따라 말하기</button></div>
     </div>
     <button class="btn" id="showModel">모범 답변 보기</button>
   </section>
@@ -139,7 +139,7 @@ button:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
     <span class="pw" id="popW"></span><span class="ipa" id="popIpa"></span><span id="popKo"></span>
     <div class="row"><button class="btn" id="popSay">▶ 발음 듣기</button><button class="btn" id="popSlow">▶ 천천히</button></div>
   </div>
-  <p class="note">버전 2026-10-30e · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></p>
+  <p class="note">버전 2026-10-30f · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></p>
 </div>
 
 <script>
@@ -180,32 +180,47 @@ function stopRecording(stream, done){
   recorder.onstop = () => { stream && stream.getTracks().forEach(t=>t.stop()); done(URL.createObjectURL(new Blob(chunks, {type: recorder.mimeType || "audio/mp4"}))); };
   try{ recorder.stop(); }catch{ done(null); }
 }
-function listenOnce(btn, hint, {continuous=false, onFinal, onInterim}){
+/* Android ends recognition at the first pause and doesn't support continuous mode well,
+   so there we quietly start a new session until she taps the mic (or `until` says she's done). */
+function listenOnce(btn, hint, {continuous=false, onFinal, onInterim, until}){
   if(!SR) return;
-  const rec = new SR();
-  rec.lang = "en-US"; rec.interimResults = true; rec.continuous = continuous && !ANDROID; rec.maxAlternatives = 3;
-  let confs = [];
-  let finalText = "", alts = [], stream = null, stopped = false;
+  const AUTO = ANDROID && (continuous || until);
+  let confs = [], finalText = "", alts = [], stream = null, stopped = false, userStop = false, rec = null, errs = 0;
+  const t0 = Date.now();
   btn.classList.add("on"); hint.textContent = "듣고 있어요… 말을 마치면 마이크를 다시 누르세요";
   startRecording().then(s => stream = s);
-  rec.onresult = e => {
-    let interim = "";
-    for(let i = e.resultIndex; i < e.results.length; i++){
-      const r = e.results[i];
-      if(r.isFinal){ finalText += r[0].transcript + " "; alts = Array.from(r).map(a => a.transcript); confs.push({text: r[0].transcript.trim(), c: r[0].confidence}); }
-      else interim += r[0].transcript;
-    }
-    onInterim && onInterim(finalText + interim);
-  };
   const end = () => {
     if(stopped) return; stopped = true;
     btn.classList.remove("on"); btn.onclick = btn._start;
     stopRecording(stream, url => onFinal(finalText.trim(), alts, url, confs));
   };
-  rec.onerror = e => { hint.textContent = e.error === "not-allowed" ? "마이크 사용을 허용해 주세요 (주소창 왼쪽 'aA' 또는 자물쇠 → 마이크 허용)" : "잘 안 들렸어요. 다시 눌러 주세요"; };
-  rec.onend = end;
-  btn.onclick = () => { try{ rec.stop(); }catch{} };
-  try{ rec.start(); }catch{ end(); }
+  const begin = () => {
+    rec = new SR();
+    rec.lang = "en-US"; rec.interimResults = true; rec.continuous = continuous && !ANDROID; rec.maxAlternatives = 3;
+    rec.onresult = e => {
+      let interim = "";
+      for(let i = e.resultIndex; i < e.results.length; i++){
+        const r = e.results[i];
+        if(r.isFinal){ finalText += r[0].transcript + " "; alts = Array.from(r).map(a => a.transcript); confs.push({text: r[0].transcript.trim(), c: r[0].confidence}); errs = 0; }
+        else interim += r[0].transcript;
+      }
+      onInterim && onInterim(finalText + interim);
+    };
+    rec.onerror = e => {
+      if(e.error === "not-allowed"){ userStop = true; hint.textContent = "마이크 사용을 허용해 주세요 (주소창 왼쪽 'aA' 또는 자물쇠 → 마이크 허용)"; }
+      else if(!AUTO) hint.textContent = "잘 안 들렸어요. 다시 눌러 주세요";
+      else errs++;
+    };
+    rec.onend = () => {
+      const done = userStop || !AUTO || errs > 4 || Date.now() - t0 > 180000 || (until && until(finalText));
+      if(done) return end();
+      hint.textContent = "계속 듣고 있어요… 다 말했으면 마이크를 누르세요";
+      setTimeout(() => { if(!stopped){ try{ begin(); }catch{ end(); } } }, 150);
+    };
+    rec.start();
+  };
+  btn.onclick = () => { userStop = true; try{ rec.stop(); }catch{ end(); } };
+  try{ begin(); }catch{ end(); }
 }
 
 /* ---------- scoring: align spoken words to the target ---------- */
@@ -285,6 +300,7 @@ $("listenSlow").onclick = () => items[idx]?.audio ? play(items[idx].audio, 0.8) 
 $("prev").onclick = () => { idx = (idx - 1 + items.length) % items.length; showItem(); };
 $("next").onclick = () => { idx = (idx + 1) % items.length; showItem(); };
 $("mic")._start = $("mic").onclick = () => listenOnce($("mic"), $("micHint"), {
+  until: t => words(t).length >= Math.ceil(words(items[idx].en).length * 0.85),
   onInterim: t => { $("micHint").textContent = "들린 말: " + t; },
   onFinal: (text, alts, url) => {
     const it = items[idx];
@@ -439,6 +455,14 @@ $("showModel").onclick = () => {
   $("modelWrap").hidden = false; clickable($("modelEn"), q.model.en); $("modelKo").textContent = q.model.ko;
 };
 $("modelListen").onclick = () => play(data.questions[qIdx % data.questions.length].model?.audio, 1);
+/* jump to this answer's sentences in the shadowing list ("모범 답변 N" = question N) */
+$("modelShadow").onclick = () => {
+  const n = qIdx % data.questions.length, q = data.questions[n];
+  let i = items.findIndex(it => it.set === "모범 답변 " + (n + 1));
+  if(i < 0 && q.model){ items.splice(idx + 1, 0, {set: "모범 답변 " + (n + 1), en: q.model.en, ko: q.model.ko, audio: q.model.audio}); i = idx + 1; }
+  if(i < 0) return;
+  idx = i; mode("s"); showItem(); window.scrollTo({top:0, behavior:"smooth"});
+};
 
 /* ---------- modes ---------- */
 function mode(m){
