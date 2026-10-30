@@ -139,7 +139,7 @@ button:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
     <span class="pw" id="popW"></span><span class="ipa" id="popIpa"></span><span id="popKo"></span>
     <div class="row"><button class="btn" id="popSay">▶ 발음 듣기</button><button class="btn" id="popSlow">▶ 천천히</button></div>
   </div>
-  <p class="note">버전 2026-10-30d · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></p>
+  <p class="note">버전 2026-10-30e · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></p>
 </div>
 
 <script>
@@ -388,19 +388,21 @@ async function claudeCoach(question, answer){
 Question: ${question}
 Her spoken answer (speech-to-text, may contain recognition errors or Korean): """${answer}"""
 Keep HER opinion and logic. Reuse her own words where usable.
-Check grammar, word choice and articles carefully; list every real mistake. Call the coach tool.`;
-  const tool = {name:"coach", description:"Return the coaching result.", input_schema:{type:"object", required:["corrections","corrected","broadcast","broadcast_ko","feedback_ko"], properties:{
-    corrections:{type:"array", items:{type:"object", required:["wrong","right","why_ko"], properties:{wrong:{type:"string", description:"her exact words"}, right:{type:"string", description:"corrected words"}, why_ko:{type:"string", description:"short reason in Korean"}}}},
+Check grammar, word choice and articles carefully; list every real mistake. Reply only with the JSON object.`;
+  const schema = {type:"object", additionalProperties:false, required:["corrections","corrected","broadcast","broadcast_ko","feedback_ko"], properties:{
+    corrections:{type:"array", description:"every real mistake: wrong = her exact words, right = corrected words, why_ko = short reason in Korean", items:{type:"object", additionalProperties:false, required:["wrong","right","why_ko"], properties:{wrong:{type:"string"}, right:{type:"string"}, why_ko:{type:"string"}}}},
     corrected:{type:"string", description:"her answer with only the mistakes fixed"},
     broadcast:{type:"string", description:"a confident Bloomberg live version, 45-70 words, conclusion first"},
     broadcast_ko:{type:"string", description:"Korean translation of broadcast"},
-    feedback_ko:{type:"array", items:{type:"string"}, description:"2-3 short coaching points in Korean"}}}};
+    feedback_ko:{type:"array", items:{type:"string"}, description:"2-3 short coaching points in Korean"}}};
   try{
     const r = await fetch("https://api.anthropic.com/v1/messages", {method:"POST", headers:{"content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-      body: JSON.stringify({model:"claude-sonnet-5-5", max_tokens:1500, tools:[tool], tool_choice:{type:"tool", name:"coach"}, messages:[{role:"user", content:prompt}]})});
+      body: JSON.stringify({model:"claude-sonnet-5-5", max_tokens:2000, output_config:{format:{type:"json_schema", schema}}, messages:[{role:"user", content:prompt}]})});
     const j = await r.json();
     if(!r.ok) throw new Error(j?.error?.message || ("HTTP " + r.status));
-    const res = ((j.content||[]).find(c => c.type === "tool_use") || {}).input;
+    const txt = (j.content||[]).filter(c => c.type === "text").map(c => c.text).join("");
+    let res = null;
+    try{ res = JSON.parse(txt); }catch(_){ const m = txt.match(/\{[\s\S]*\}/); if(m) res = JSON.parse(m[0]); }
     if(!res) throw new Error("빈 응답");
     out.innerHTML = '<div class="label">Claude 코치 · 고칠 곳</div>';
     (res.corrections||[]).forEach(c => { const d = document.createElement("div"); d.className = "err"; d.innerHTML = "<b></b> → <span></span><br><span class='note'></span>"; d.querySelector("b").textContent = c.wrong; d.querySelectorAll("span")[0].textContent = c.right; d.querySelector(".note").textContent = c.why_ko; out.append(d); });
