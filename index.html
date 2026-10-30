@@ -124,6 +124,10 @@ button:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
       <p class="note">Claude API 키를 한 번 붙여 넣으면 '문법·발음 체크하기'를 누를 때 Claude가 블룸버그식 영어로 바로 고쳐 줍니다. 키는 이 기기 브라우저에만 저장됩니다.</p>
       <input type="password" id="apiKey" placeholder="sk-ant-..." style="font:inherit;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">
       <div class="row"><button class="btn" id="saveKey">저장</button><button class="btn" id="delKey">지우기</button><span class="note" id="keyNote"></span></div>
+      <div class="row"><button class="btn" id="qrKey" hidden>📱 휴대폰도 연결하기 (QR)</button></div>
+      <div id="qrBox" hidden style="text-align:center"><div id="qrImg" style="background:#fff;display:inline-block;padding:12px;border-radius:8px"></div>
+        <p class="note">휴대폰 카메라로 이 QR을 비추고 뜨는 링크를 누르면 휴대폰에도 Claude 코치가 연결됩니다. 다 되면 '닫기'를 누르세요. 이 QR은 비밀번호와 같으니 다른 사람에게 보여 주지 마세요.</p>
+        <button class="btn" id="qrClose">닫기</button></div>
     </details>
     <p class="note" id="copyNote">내 생각을 영어로 말한 뒤 '문법·발음 체크하기'를 누르세요. 틀린 곳을 고친 문장을 원어민 발음으로 들려주고, 그 문장을 다시 따라 말하면 발음을 채점합니다.</p>
     <div class="result" id="modelWrap" hidden>
@@ -139,7 +143,7 @@ button:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
     <span class="pw" id="popW"></span><span class="ipa" id="popIpa"></span><span id="popKo"></span>
     <div class="row"><button class="btn" id="popSay">▶ 발음 듣기</button><button class="btn" id="popSlow">▶ 천천히</button></div>
   </div>
-  <p class="note">버전 2026-10-30f · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></p>
+  <p class="note">버전 2026-10-30g · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></p>
 </div>
 
 <script>
@@ -350,6 +354,7 @@ $("checkAns").onclick = async () => {
   if(!raw){ out.hidden = false; out.textContent = "먼저 마이크를 누르고 답을 말해 주세요."; return; }
   const text = sentenceCase(raw);
   out.hidden = false; out.innerHTML = '<p class="note">체크하는 중입니다…</p>';
+  const noKeyNote = '<p class="note" style="color:var(--bad,#b3261e)">이 기기에는 Claude 코치가 연결되어 있지 않아 기본 검사만 합니다. 컴퓨터의 \'Claude 코치 연결 설정\'에서 \'휴대폰도 연결하기 (QR)\'를 누르고 이 휴대폰으로 QR을 찍으세요.</p>';
   let matches = [];
   try{
     const body = new URLSearchParams({text, language:"en-US", disabledCategories:"CASING,PUNCTUATION,TYPOGRAPHY"});
@@ -361,7 +366,7 @@ $("checkAns").onclick = async () => {
   // corrected sentence: apply first suggestion of each match from the end
   let fixed = text;
   [...matches].sort((a,b) => b.offset - a.offset).forEach(m => { if(m.replacements && m.replacements[0]) fixed = fixed.slice(0, m.offset) + m.replacements[0].value + fixed.slice(m.offset + m.length); });
-  out.innerHTML = "";
+  out.innerHTML = noKeyNote;
   const h = document.createElement("div"); h.className = "label"; h.textContent = matches.length ? "문법 체크 · 고칠 곳 " + matches.length + "개" : "문법 체크"; out.append(h);
   if(!matches.length){ const p = document.createElement("p"); p.textContent = "문법 오류가 보이지 않습니다. 잘 하셨어요."; out.append(p); }
   matches.forEach(m => {
@@ -392,9 +397,21 @@ $("checkAns").onclick = async () => {
 };
 /* ---------- Claude coach (needs the user's own API key, kept only in this browser) ---------- */
 const getKey = () => { try{ return localStorage.getItem("claudeKey") || ""; }catch{ return ""; } };
-function keyState(){ const k = getKey(); $("keyNote").textContent = k ? "연결됨 (…" + k.slice(-4) + ")" : "연결 안 됨"; }
+function keyState(){ const k = getKey(); $("keyNote").textContent = k ? "연결됨 (…" + k.slice(-4) + ")" : "연결 안 됨"; $("qrKey").hidden = !k || ANDROID || /iPhone|iPad/.test(navigator.userAgent); }
 $("saveKey").onclick = () => { const v = $("apiKey").value.trim(); if(!/^sk-ant-/.test(v)){ $("keyNote").textContent = "sk-ant- 로 시작하는 키를 붙여 넣어 주세요."; return; } try{ localStorage.setItem("claudeKey", v); }catch{} $("apiKey").value = ""; keyState(); };
 $("delKey").onclick = () => { try{ localStorage.removeItem("claudeKey"); }catch{} keyState(); };
+/* Key handed over from the computer by QR: #k=sk-ant-... (fragment never reaches the server) */
+(() => { const m = location.hash.match(/[#&]k=(sk-ant-[^&]+)/); if(!m) return;
+  try{ localStorage.setItem("claudeKey", decodeURIComponent(m[1])); }catch{}
+  history.replaceState(null, "", location.pathname + location.search);
+  $("keyBox").open = true; setTimeout(() => { $("keyNote").textContent = "휴대폰에 Claude 코치가 연결되었습니다 ✓"; }, 0); })();
+$("qrKey").onclick = () => {
+  const show = () => { const qr = qrcode(0, "L"); qr.addData(location.origin + location.pathname + "#k=" + encodeURIComponent(getKey())); qr.make();
+    $("qrImg").innerHTML = qr.createSvgTag({cellSize: 4, margin: 0}); $("qrBox").hidden = false; };
+  if(window.qrcode) return show();
+  const sc = document.createElement("script"); sc.src = "lib/qrcode.js"; sc.onload = show; document.head.append(sc);
+};
+$("qrClose").onclick = () => { $("qrBox").hidden = true; $("qrImg").innerHTML = ""; };
 keyState();
 async function claudeCoach(question, answer){
   const key = getKey(); const out = $("claudeOut");
