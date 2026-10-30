@@ -161,7 +161,7 @@ body.nopy p:has(ruby){line-height:1.7}
     <span class="pw" id="popW"></span><span class="ipa" id="popIpa"></span><span id="popKo"></span>
     <div class="row"><button class="btn" id="popSay">▶ 발음 듣기</button><button class="btn" id="popSlow">▶ 천천히</button></div>
   </div>
-  <p class="note"><span>버전</span> 2026-10-30k<span id="deskLink"> · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></span> · <a href="#" id="uiSwitch">中文界面</a></p>
+  <p class="note"><span>버전</span> 2026-10-30l<span id="deskLink"> · English Desk(듣기·코칭·기록): <a href="https://claude.ai/artifact/MG9B2tnRbi4igqxSoiKKf5" target="_blank" rel="noopener">열기</a></span> · <a href="#" id="uiSwitch">中文界面</a></p>
 </div>
 
 <script>
@@ -486,8 +486,11 @@ function showItem(){
   $("result").hidden = true; $("tips").hidden = true; $("myVoice").hidden = true;
   $("micHint").textContent = t("원어민을 들은 뒤, 마이크를 누르고 그대로 따라 말하세요");
 }
-$("listen").onclick = () => items[idx]?.audio ? play(items[idx].audio, 1) : speak(tx(items[idx]), 0.95);
-$("listenSlow").onclick = () => items[idx]?.audio ? play(items[idx].audio, 0.8) : speak(tx(items[idx]), 0.7);
+/* Our Mandarin recordings sound synthetic, so in 中文 mode a natural device voice (Google 普通话, Microsoft Natural) reads instead when there is one. */
+const niceZh = () => ZH() && ttsVoice.zh && /Google|Natural|Online|Neural/i.test(ttsVoice.zh.name);
+function readOut(o, slow){ if(!o) return; if(niceZh() || !o.audio) speak(tx(o), slow ? 0.7 : (ZH() ? 1 : 0.95)); else play(o.audio, slow ? 0.8 : 1); }
+$("listen").onclick = () => readOut(items[idx], false);
+$("listenSlow").onclick = () => readOut(items[idx], true);
 let showPy = (() => { try{ return localStorage.getItem("pinyin") !== "off"; }catch{ return true; } })();
 function applyPy(){ document.body.classList.toggle("nopy", !showPy); $("pyBtn").textContent = showPy ? "병음 끄기" : "병음 켜기"; }
 $("pyBtn").onclick = () => { showPy = !showPy; try{ localStorage.setItem("pinyin", showPy ? "on" : "off"); }catch{} applyPy(); };
@@ -547,7 +550,7 @@ function showQ(){
   clickable($("qEn"), tx(q)); $("qKo").textContent = tr(q);
   $("said").value = ""; $("modelWrap").hidden = true; $("myAns").hidden = true; $("checkOut").hidden = true; $("claudeOut").hidden = true; lastConfs = [];
 }
-$("qListen").onclick = () => play(data.questions[qIdx % data.questions.length].audio, 1);
+$("qListen").onclick = () => readOut(data.questions[qIdx % data.questions.length], false);
 $("qNext").onclick = () => { qIdx++; showQ(); };
 $("mic2")._start = $("mic2").onclick = () => {
   const before = $("said").value ? $("said").value.trim() + SEP() : "";
@@ -715,7 +718,7 @@ $("showModel").onclick = () => {
   if(!q.model) return;
   $("modelWrap").hidden = false; clickable($("modelEn"), tx(q.model)); $("modelKo").textContent = tr(q.model);
 };
-$("modelListen").onclick = () => play(data.questions[qIdx % data.questions.length].model?.audio, 1);
+$("modelListen").onclick = () => readOut(data.questions[qIdx % data.questions.length].model, false);
 /* jump to this answer's sentences in the shadowing list ("모범 답변 N" = question N) */
 $("modelShadow").onclick = () => {
   const n = qIdx % data.questions.length, q = data.questions[n];
